@@ -1,10 +1,10 @@
 ```plantuml
 @startuml
 skinparam backgroundcolor #FFFFFF
-skinparam DefaultFontColor #000000
-skinparam ClassBackgroundColor #FDFDFD
-skinparam ClassBorderColor #222222
-skinparam ArrowColor #222222
+skinparam DefaultFontColor #111111
+skinparam ClassBackgroundColor #F4F6F9
+skinparam ClassBorderColor #1E3A8A
+skinparam ArrowColor #1E3A8A
 autonumber
 actor User as U
 participant "UI (HTML / Dropdowns)" as UI
