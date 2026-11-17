@@ -1,6 +1,5 @@
 ```plantuml
 @startuml
-
 autonumber
 actor User as U
 participant "UI (HTML / Dropdowns)" as UI
