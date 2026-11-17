@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Mehrsektorales Verzeichnis & Leaflet-Karte (Version 08)</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; display: flex; gap: 20px; }
+        .left-panel { flex: 1; max-width: 500px; }
+        .right-panel { flex: 1; height: 600px; border: 1px solid #ccc; }
+        #map { width: 100%; height: 100%; }
+        .form-group { margin-bottom: 15px; display: none; }
+        .form-group.active { display: block; }
+        label { display: inline-block; width: 160px; font-weight: bold; }
+        select { padding: 5px; width: 280px; }
+        #ausgabeBereich { margin-top: 25px; padding: 15px; border: 1px solid #ccc; background-color: #f9f9f9; display: none; }
+        .marker-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #333; transform: translate(-50%, -50%); }
+        .marker-dot-gruen { background-color: #22BB22; }
+        .marker-dot-rot { background-color: #CC3333; }
+    </style>
+</head>
+<body>
+
+    <div class="left-panel">
+        <h1>Mehrsektorale Auswahl (Version 08)</h1>
+
+        <!-- Sektor -->
+        <div class="form-group active">
+            <label for="sektorSelect">Sektor:</label>
+            <select id="sektorSelect" onchange="waehleSektor()">
+                <option value="">-- Bitte Sektor wählen --</option>
+            </select>
+        </div>
+
+        <!-- Schulart / Unterkategorie (Nur bei Schulen aktiv) -->
+        <div class="form-group" id="groupUnterkategorie">
+            <label for="unterkategorieSelect">Schulart:</label>
+            <select id="unterkategorieSelect" onchange="waehleUnterkategorie()">
+                <option value="">-- Bitte Schulart wählen --</option>
+            </select>
+        </div>
+
+        <!-- Kontinent -->
+        <div class="form-group" id="groupKontinent">
+            <label for="kontinentSelect">Kontinent:</label>
+            <select id="kontinentSelect" onchange="ladeLaender()">
+                <option value="">-- Bitte Kontinent wählen --</option>
+            </select>
+        </div>
+
+        <!-- Land -->
+        <div class="form-group" id="groupLand">
+            <label for="landSelect">Land:</label>
+            <select id="landSelect" onchange="ladeBundeslaender()">
+                <option value="">-- Bitte Land wählen --</option>
+            </select>
+        </div>
+
+        <!-- Bundesland -->
+        <div class="form-group" id="groupBundesland">
+            <label for="bundeslandSelect">Bundesland:</label>
+            <select id="bundeslandSelect" onchange="ladeLandkreise()">
+                <option value="">-- Bitte Bundesland wählen --</option>
+            </select>
+        </div>
+
+        <!-- Landkreis -->
+        <div class="form-group" id="groupLandkreis">
+            <label for="landkreisSelect">Landkreis:</label>
+            <select id="landkreisSelect" onchange="ladeGemeinden()">
+                <option value="">-- Bitte Landkreis wählen --</option>
+            </select>
+        </div>
+
+        <!-- Gemeinde -->
+        <div class="form-group" id="groupGemeinde">
+            <label for="gemeindeSelect">Gemeinde / Ort:</label>
+            <select id="gemeindeSelect" onchange="zeigeGemeindeDetails()">
+                <option value="">-- Bitte Ort wählen --</option>
+            </select>
+        </div>
+
+        <!-- Ausgabebereich -->
+        <div id="ausgabeBereich">
+            <p id="ausgabeText"></p>
+        </div>
+    </div>
+
+    <div class="right-panel">
+        <div id="map"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        let daten = {};
+        let map;
+        let gemeindeMarkers = [];
+
+        window.onload = function() {
+            map = L.map('map').setView([51.1657, 10.4515], 6);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap'
+            }).addTo(map);
+
+            fetch('2026-11-17-html-dropdown-json-08.json')
+                .then(response => response.json())
+                .then(data => {
+                    daten = data;
+                    const sektorSelect = document.getElementById("sektorSelect");
+                    daten.sektoren.forEach((s, index) => {
+                        let opt = document.createElement("option");
+                        opt.value = index;
+                        opt.textContent = s.name;
+                        sektorSelect.appendChild(opt);
+                    });
+                })
+                .catch(error => console.error('Fehler beim Laden der JSON-Datei:', error));
+        };
+
+        function loescheMarker() {
+            gemeindeMarkers.forEach(m => map.removeLayer(m));
+            gemeindeMarkers = [];
+        }
+
+        function versteckeAlleAb(ebene) {
+            if (ebene <= 1) {
+                document.getElementById("groupUnterkategorie").classList.remove("active");
+                document.getElementById("groupKontinent").classList.remove("active");
+            }
+            if (ebene <= 2) document.getElementById("groupLand").classList.remove("active");
+            if (ebene <= 3) document.getElementById("groupBundesland").classList.remove("active");
+            if (ebene <= 4) document.getElementById("groupLandkreis").classList.remove("active");
+            if (ebene <= 5) document.getElementById("groupGemeinde").classList.remove("active");
+            document.getElementById("ausgabeBereich").style.display = "none";
+            loescheMarker();
+        }
+
+        function waehleSektor() {
+            versteckeAlleAb(1);
+            const sIndex = document.getElementById("sektorSelect").value;
+            if (sIndex === "") return;
+
+            const sektor = daten.sektoren[sIndex];
+
+            if (sektor.unterkategorien && sektor.unterkategorien.length > 0) {
+                document.getElementById("groupUnterkategorie").classList.add("active");
+                const uSelect = document.getElementById("unterkategorieSelect");
+                uSelect.innerHTML = '<option value="">-- Bitte Schulart wählen --</option>';
+                sektor.unterkategorien.forEach((u, idx) => {
+                    let opt = document.createElement("option");
+                    opt.value = idx;
+                    opt.textContent = u;
+                    uSelect.appendChild(opt);
+                });
+            } else {
+                zeigeKontinente();
+            }
+        }
+
+        function waehleUnterkategorie() {
+            versteckeAlleAb(2);
+            if (document.getElementById("unterkategorieSelect").value !== "") {
+                zeigeKontinente();
+            }
+        }
+
+        function zeigeKontinente() {
+            document.getElementById("groupKontinent").classList.add("active");
+            const sIndex = document.getElementById("sektorSelect").value;
+            const kSelect = document.getElementById("kontinentSelect");
+            kSelect.innerHTML = '<option value="">-- Bitte Kontinent wählen --</option>';
+            
+            daten.sektoren[sIndex].kontinente.forEach((k, idx) => {
+                let opt = document.createElement("option");
+                opt.value = idx;
+                opt.textContent = k.name;
+                kSelect.appendChild(opt);
+            });
+        }
+
+        function ladeLaender() {
+            versteckeAlleAb(3);
+            const sIndex = document.getElementById("sektorSelect").value;
+            const kIndex = document.getElementById("kontinentSelect").value;
+            const lSelect = document.getElementById("landSelect");
+            lSelect.innerHTML = '<option value="">-- Bitte Land wählen --</option>';
+
+            if (kIndex !== "") {
+                document.getElementById("groupLand").classList.add("active");
+                daten.sektoren[sIndex].kontinente[kIndex].laender.forEach((l, idx) => {
+                    let opt = document.createElement("option");
+                    opt.value = idx;
+                    opt.textContent = l.name;
+                    lSelect.appendChild(opt);
+                });
+            }
+        }
+
+        function ladeBundeslaender() {
+            versteckeAlleAb(4);
+            const sIndex = document.getElementById("sektorSelect").value;
+            const kIndex = document.getElementById("kontinentSelect").value;
+            const lIndex = document.getElementById("landSelect").value;
+            const bSelect = document.getElementById("bundeslandSelect");
+            bSelect.innerHTML = '<option value="">-- Bitte Bundesland wählen --</option>';
+
+            if (lIndex !== "") {
+                document.getElementById("groupBundesland").classList.add("active");
+                daten.sektoren[sIndex].kontinente[kIndex].laender[lIndex].bundeslaender.forEach((b, idx) => {
+                    let opt = document.createElement("option");
+                    opt.value = idx;
+                    opt.textContent = b.name;
+                    bSelect.appendChild(opt);
+                });
+            }
+        }
+
+        function ladeLandkreise() {
+            versteckeAlleAb(5);
+            const sIndex = document.getElementById("sektorSelect").value;
+            const kIndex = document.getElementById("kontinentSelect").value;
+            const lIndex = document.getElementById("landSelect").value;
+            const bIndex = document.getElementById("bundeslandSelect").value;
+            const lkSelect = document.getElementById("landkreisSelect");
+            lkSelect.innerHTML = '<option value="">-- Bitte Landkreis wählen --</option>';
+
+            if (bIndex !== "") {
+                document.getElementById("groupLandkreis").classList.add("active");
+                const bundesland = daten.sektoren[sIndex].kontinente[kIndex].laender[lIndex].bundeslaender[bIndex];
+                
+                bundesland.landkreise.forEach((lk, idx) => {
+                    let opt = document.createElement("option");
+                    opt.value = idx;
+                    opt.textContent = lk.name;
+                    lkSelect.appendChild(opt);
+                });
+            }
+        }
+
+        function ladeGemeinden() {
+            loescheMarker();
+            const sIndex = document.getElementById("sektorSelect").value;
+            const kIndex = document.getElementById("kontinentSelect").value;
+            const lIndex = document.getElementById("landSelect").value;
+            const bIndex = document.getElementById("bundeslandSelect").value;
+            const lkIndex = document.getElementById("landkreisSelect").value;
+            const gSelect = document.getElementById("gemeindeSelect");
+            gSelect.innerHTML = '<option value="">-- Bitte Ort wählen --</option>';
+
+            if (lkIndex !== "") {
+                document.getElementById("groupGemeinde").classList.add("active");
+                const lk = daten.sektoren[sIndex].kontinente[kIndex].laender[lIndex].bundeslaender[bIndex].landkreise[lkIndex];
+                
+                lk.gemeinden.forEach((g, idx) => {
+                    let opt = document.createElement("option");
+                    opt.value = idx;
+                    opt.textContent = g.name;
+                    gSelect.appendChild(opt);
+
+                    const icon = L.divIcon({
+                        className: `marker-dot marker-dot-${g.status}`,
+                        iconSize: [14, 14]
+                    });
+                    const marker = L.marker([48.6616 + (Math.random()-0.5)*0.5, 9.0501 + (Math.random()-0.5)*0.5], { icon: icon })
+                        .addTo(map)
+                        .bindPopup(`<strong>${g.name}</strong><br>${g.adresse}<br><a href="${g.link}">E-Mail senden</a>`);
+                    gemeindeMarkers.push(marker);
+                });
+            }
+        }
+
+        function zeigeGemeindeDetails() {
+            const sIndex = document.getElementById("sektorSelect").value;
+            const kIndex = document.getElementById("kontinentSelect").value;
+            const lIndex = document.getElementById("landSelect").value;
+            const bIndex = document.getElementById("bundeslandSelect").value;
+            const lkIndex = document.getElementById("landkreisSelect").value;
+            const gIndex = document.getElementById("gemeindeSelect").value;
+
+            if (gIndex !== "") {
+                const eintrag = daten.sektoren[sIndex].kontinente[kIndex].laender[lIndex].bundeslaender[bIndex].landkreise[lkIndex].gemeinden[gIndex];
+                document.getElementById("ausgabeText").innerHTML = `Ausgewählt: <strong>${eintrag.name}</strong><br>Anschrift: ${eintrag.adresse}<br><a href="${eintrag.link}" target="_blank">E-Mail senden</a>`;
+                document.getElementById("ausgabeBereich").style.display = "block";
+                
+                if (gemeindeMarkers[gIndex]) {
+                    gemeindeMarkers[gIndex].openPopup();
+                }
+            }
+        }
+    </script>
+</body>
+</html>
